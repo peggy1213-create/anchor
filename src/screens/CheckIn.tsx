@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type DragEvent } from "react";
 import { useStore } from "../lib/store";
+import type { TimeOfDay } from "../lib/types";
 
 const HARD_PLACEHOLDERS = [
   "Energy low",
@@ -13,6 +14,12 @@ const PROTECT_PLACEHOLDERS = [
   "No Slack before 10",
   "A walk after the workshop",
   "Quiet focus time this morning",
+];
+
+const TIME_OPTIONS: { value: TimeOfDay; label: string }[] = [
+  { value: "morning", label: "Morning" },
+  { value: "afternoon", label: "Afternoon" },
+  { value: "evening", label: "Evening" },
 ];
 
 function pickPlaceholder(list: string[]) {
@@ -37,10 +44,15 @@ function StepDots({ current }: { current: number }) {
   );
 }
 
+interface CommitmentDraft {
+  text: string;
+  timeOfDay?: TimeOfDay;
+}
+
 export default function CheckIn() {
   const store = useStore();
   const [step, setStep] = useState(0);
-  const [commitments, setCommitments] = useState<string[]>([""]);
+  const [commitments, setCommitments] = useState<CommitmentDraft[]>([{ text: "" }]);
   const [hardThing, setHardThing] = useState("");
   const [protectedThing, setProtectedThing] = useState("");
   const [showMaxHint, setShowMaxHint] = useState(false);
@@ -63,11 +75,11 @@ export default function CheckIn() {
     if (step === 0) inputRefs.current[0]?.focus();
   }, [step]);
 
-  const filledCount = commitments.filter((c) => c.trim()).length;
+  const filledCount = commitments.filter((c) => c.text.trim()).length;
 
   const addInput = useCallback(() => {
-    if (commitments.length < 3) {
-      setCommitments([...commitments, ""]);
+    if (commitments.length < 5) {
+      setCommitments([...commitments, { text: "" }]);
       setTimeout(() => inputRefs.current[commitments.length]?.focus(), 50);
     } else {
       setShowMaxHint(true);
@@ -77,11 +89,11 @@ export default function CheckIn() {
   const handleCommitmentKeyDown = (idx: number, e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const current = commitments[idx]?.trim();
+      const current = commitments[idx]?.text.trim();
       if (!current) return;
       if (idx < commitments.length - 1) {
         inputRefs.current[idx + 1]?.focus();
-      } else if (commitments.length < 3) {
+      } else if (commitments.length < 5) {
         addInput();
       } else {
         setStep(1);
@@ -91,19 +103,72 @@ export default function CheckIn() {
 
   const updateCommitment = (idx: number, val: string) => {
     const next = [...commitments];
-    next[idx] = val;
+    next[idx] = { ...next[idx], text: val };
     setCommitments(next);
     if (showMaxHint) setShowMaxHint(false);
   };
 
+  const updateTimeOfDay = (idx: number, time: TimeOfDay | undefined) => {
+    const next = [...commitments];
+    next[idx] = { ...next[idx], timeOfDay: next[idx].timeOfDay === time ? undefined : time };
+    setCommitments(next);
+  };
+
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  const handleDragStart = (idx: number, e: DragEvent) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(idx));
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "0.5";
+    }
+  };
+
+  const handleDragEnd = (e: DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "1";
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+
+  const handleDragOver = (idx: number, e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIdx(idx);
+  };
+
+  const handleDrop = (targetIdx: number, e: DragEvent) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === targetIdx) return;
+    const next = [...commitments];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, moved);
+    setCommitments(next);
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+
+  const removeCommitment = (idx: number) => {
+    if (commitments.length <= 1) {
+      setCommitments([{ text: "" }]);
+      return;
+    }
+    setCommitments(commitments.filter((_, i) => i !== idx));
+  };
+
   const acceptCarried = (c: { id: string; text: string }) => {
     setAcceptedCarried((s) => new Set(s).add(c.id));
-    if (!commitments.some((t) => t === c.text)) {
-      const empty = commitments.findIndex((t) => !t.trim());
+    if (!commitments.some((t) => t.text === c.text)) {
+      const empty = commitments.findIndex((t) => !t.text.trim());
       if (empty >= 0) {
-        updateCommitment(empty, c.text);
-      } else if (commitments.length < 3) {
-        setCommitments([...commitments, c.text]);
+        const next = [...commitments];
+        next[empty] = { ...next[empty], text: c.text };
+        setCommitments(next);
+      } else if (commitments.length < 5) {
+        setCommitments([...commitments, { text: c.text }]);
       }
     }
   };
@@ -113,10 +178,10 @@ export default function CheckIn() {
   };
 
   const handleSubmit = () => {
-    const texts = commitments.filter((c) => c.trim());
-    if (texts.length === 0) return;
+    const filled = commitments.filter((c) => c.text.trim());
+    if (filled.length === 0) return;
     store.checkIn({
-      commitments: texts,
+      commitments: filled.map((c) => ({ text: c.text.trim(), timeOfDay: c.timeOfDay })),
       hardThing,
       protectedThing,
     });
@@ -166,20 +231,70 @@ export default function CheckIn() {
             ))}
 
           <div className="space-y-3">
-            {commitments.map((val, idx) => (
-              <input
+            {commitments.map((draft, idx) => (
+              <div
                 key={idx}
-                ref={(el) => { inputRefs.current[idx] = el; }}
-                value={val}
-                onChange={(e) => updateCommitment(idx, e.target.value)}
-                onKeyDown={(e) => handleCommitmentKeyDown(idx, e)}
-                placeholder={idx === 0 ? "Something that matters…" : "Another thing…"}
-                className="w-full rounded-lg border border-border bg-surface/60 px-4 py-3 text-text-primary placeholder:text-text-secondary/50 outline-none focus:border-accent transition-colors"
-              />
+                draggable={commitments.length > 1 && !!draft.text.trim()}
+                onDragStart={(e) => handleDragStart(idx, e)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(idx, e)}
+                onDrop={(e) => handleDrop(idx, e)}
+                className={`rounded-lg border bg-surface/60 px-4 py-3 transition-all ${
+                  dragOverIdx === idx && dragIdx !== idx
+                    ? "border-accent border-dashed"
+                    : "border-border"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {commitments.length > 1 && draft.text.trim() && (
+                    <span
+                      className="cursor-grab active:cursor-grabbing text-text-secondary/40 hover:text-text-secondary select-none shrink-0"
+                      title="Drag to reorder"
+                    >
+                      ⠿
+                    </span>
+                  )}
+                  <input
+                    ref={(el) => { inputRefs.current[idx] = el; }}
+                    value={draft.text}
+                    onChange={(e) => updateCommitment(idx, e.target.value)}
+                    onKeyDown={(e) => handleCommitmentKeyDown(idx, e)}
+                    placeholder={idx === 0 ? "Something that matters..." : "Another thing..."}
+                    className="flex-1 bg-transparent text-text-primary placeholder:text-text-secondary/50 outline-none"
+                  />
+                  {(commitments.length > 1 || draft.text) && (
+                    <button
+                      onClick={() => removeCommitment(idx)}
+                      className="w-6 h-6 flex items-center justify-center rounded text-text-secondary/60 hover:text-red-400 hover:bg-red-400/10 transition-colors text-xs shrink-0"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {draft.text.trim() && (
+                  <div className="flex gap-1.5 mt-2">
+                    {TIME_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => updateTimeOfDay(idx, opt.value)}
+                        className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                          draft.timeOfDay === opt.value
+                            ? "border-accent text-accent bg-accent/10"
+                            : "border-border text-text-secondary hover:border-accent/50 hover:text-accent"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
-          {filledCount > 0 && commitments.length < 3 && !showMaxHint && (
+          {filledCount > 0 && commitments.length < 5 && !showMaxHint && (
             <button
               onClick={addInput}
               className="mt-3 text-sm text-accent hover:text-accent/80 transition-colors"
@@ -190,7 +305,7 @@ export default function CheckIn() {
 
           {showMaxHint && (
             <p className="mt-3 text-sm text-text-secondary italic">
-              Which of these is the one you'd feel best about finishing?
+              That's plenty. Which of these matters most?
             </p>
           )}
 
