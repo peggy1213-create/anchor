@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { useStore } from "../lib/store";
 import type { Commitment, DropReason } from "../lib/types";
@@ -46,7 +46,7 @@ function CommitmentCard({
   const { updateDisposition, breakDown, carryForward } = useStore();
   const [showDrop, setShowDrop] = useState(false);
   const [showBreakDown, setShowBreakDown] = useState(false);
-  const [breakDownText, setBreakDownText] = useState("");
+  const [breakDownTexts, setBreakDownTexts] = useState<string[]>([""]);
 
   const isPending = commitment.disposition === "pending";
   const isDone = commitment.disposition === "done";
@@ -64,11 +64,36 @@ function CommitmentCard({
     setShowDrop(false);
   };
 
+  const breakDownInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   const handleBreakDown = () => {
-    if (!breakDownText.trim()) return;
-    breakDown(commitment.id, breakDownText.trim());
+    const steps = breakDownTexts.map((t) => t.trim()).filter(Boolean);
+    if (steps.length === 0) return;
+    breakDown(commitment.id, steps);
     setShowBreakDown(false);
-    setBreakDownText("");
+    setBreakDownTexts([""]);
+  };
+
+  const updateBreakDownText = (idx: number, val: string) => {
+    const next = [...breakDownTexts];
+    next[idx] = val;
+    setBreakDownTexts(next);
+  };
+
+  const handleBreakDownKeyDown = (idx: number, e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const current = breakDownTexts[idx]?.trim();
+      if (!current) return;
+      if (idx < breakDownTexts.length - 1) {
+        breakDownInputRefs.current[idx + 1]?.focus();
+      } else if (breakDownTexts.length < 5) {
+        setBreakDownTexts([...breakDownTexts, ""]);
+        setTimeout(() => breakDownInputRefs.current[breakDownTexts.length]?.focus(), 50);
+      } else {
+        handleBreakDown();
+      }
+    }
   };
 
   return (
@@ -150,24 +175,41 @@ function CommitmentCard({
 
         {showBreakDown && (
           <div className="mt-3 animate-fade-in">
-            <input
-              autoFocus
-              value={breakDownText}
-              onChange={(e) => setBreakDownText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleBreakDown()}
-              placeholder="What's the smallest next step?"
-              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 outline-none focus:border-accent transition-colors"
-            />
+            <div className="space-y-2">
+              {breakDownTexts.map((val, idx) => (
+                <input
+                  key={idx}
+                  ref={(el) => { breakDownInputRefs.current[idx] = el; }}
+                  autoFocus={idx === 0}
+                  value={val}
+                  onChange={(e) => updateBreakDownText(idx, e.target.value)}
+                  onKeyDown={(e) => handleBreakDownKeyDown(idx, e)}
+                  placeholder={idx === 0 ? "What's the smallest next step?" : "Another step…"}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 outline-none focus:border-accent transition-colors"
+                />
+              ))}
+            </div>
+            {breakDownTexts.some((t) => t.trim()) && breakDownTexts.length < 5 && (
+              <button
+                onClick={() => {
+                  setBreakDownTexts([...breakDownTexts, ""]);
+                  setTimeout(() => breakDownInputRefs.current[breakDownTexts.length]?.focus(), 50);
+                }}
+                className="mt-2 text-xs text-accent hover:text-accent/80 transition-colors"
+              >
+                + add another step
+              </button>
+            )}
             <div className="mt-2 flex justify-end gap-2">
               <button
-                onClick={() => setShowBreakDown(false)}
+                onClick={() => { setShowBreakDown(false); setBreakDownTexts([""]); }}
                 className="text-xs text-text-secondary hover:text-text-primary transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBreakDown}
-                disabled={!breakDownText.trim()}
+                disabled={!breakDownTexts.some((t) => t.trim())}
                 className="text-xs px-3 py-1 rounded-md bg-accent text-white disabled:opacity-40 transition-opacity"
               >
                 Break down

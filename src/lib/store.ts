@@ -61,7 +61,7 @@ interface AppStore extends AppState {
     disposition: Disposition,
     dropReason?: DropReason
   ) => void;
-  breakDown: (commitmentId: string, firstStep: string) => void;
+  breakDown: (commitmentId: string, steps: string[]) => void;
   checkOut: (input: CheckOutInput) => void;
   getToday: () => TodayView;
   getWeek: (anchorDate?: Date) => WeekView;
@@ -135,26 +135,26 @@ export const useStore = create<AppStore>((set, get) => ({
     });
   },
 
-  breakDown: (commitmentId, firstStep) => {
+  breakDown: (commitmentId, steps) => {
     const day = todayKey();
     const now = new Date().toISOString();
-    const child: Commitment = {
+    const children: Commitment[] = steps.map((text) => ({
       id: uuid(),
-      text: firstStep,
+      text,
       createdAt: now,
       dayKey: day,
       disposition: "pending",
       brokenDownFrom: commitmentId,
       carryHistory: [],
-    };
+    }));
 
     set((state) => {
       const commitments = state.commitments.map((c) =>
         c.id === commitmentId
-          ? { ...c, disposition: "broken_down" as Disposition, firstStepNote: firstStep }
+          ? { ...c, disposition: "broken_down" as Disposition, firstStepNote: steps[0] }
           : c
       );
-      const next = { commitments: [...commitments, child] };
+      const next = { commitments: [...commitments, ...children] };
       saveState({ ...state, ...next });
       return next;
     });
