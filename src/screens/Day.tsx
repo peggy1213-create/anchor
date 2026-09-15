@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
-import { format } from "date-fns";
+import { useState, useMemo, useCallback, useRef, useEffect, type DragEvent } from "react";
+import { format, parseISO, isToday } from "date-fns";
 import { useStore } from "../lib/store";
-import type { Commitment, DropReason } from "../lib/types";
+import type { Commitment, DropReason, TimeOfDay } from "../lib/types";
 
 const DROP_OPTIONS: { value: DropReason | "none"; label: string }[] = [
   { value: "not_now", label: "Not now" },
@@ -36,17 +36,43 @@ function DispositionPill({ disposition, dropReason }: { disposition: string; dro
   );
 }
 
+const TIME_LABELS: Record<TimeOfDay, string> = {
+  morning: "Morning",
+  afternoon: "Afternoon",
+  evening: "Evening",
+};
+
+const TIME_OPTIONS: { value: TimeOfDay; label: string }[] = [
+  { value: "morning", label: "Morning" },
+  { value: "afternoon", label: "Afternoon" },
+  { value: "evening", label: "Evening" },
+];
+
 function CommitmentCard({
   commitment,
   children,
+  isDragOver,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
 }: {
   commitment: Commitment;
   children?: Commitment[];
+  isDragOver?: boolean;
+  onDragStart?: (e: DragEvent) => void;
+  onDragEnd?: (e: DragEvent) => void;
+  onDragOver?: (e: DragEvent) => void;
+  onDrop?: (e: DragEvent) => void;
 }) {
-  const { updateDisposition, breakDown, carryForward } = useStore();
+  const { updateDisposition, breakDown, carryForward, updateTimeOfDay, updateCommitmentText } = useStore();
+  const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [showDrop, setShowDrop] = useState(false);
   const [showBreakDown, setShowBreakDown] = useState(false);
   const [breakDownText, setBreakDownText] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(commitment.text);
+  const editRef = useRef<HTMLInputElement>(null);
 
   const isPending = commitment.disposition === "pending";
   const isDone = commitment.disposition === "done";
@@ -72,29 +98,99 @@ function CommitmentCard({
   };
 
   return (
-    <div className={commitment.brokenDownFrom ? "ml-6" : ""}>
+    <div
+      className={commitment.brokenDownFrom ? "ml-6" : ""}
+      draggable={isPending && !commitment.brokenDownFrom}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <div
         className={`rounded-xl border px-4 py-3 transition-all ${
-          isCarried
-            ? "border-carried/40 bg-surface/40"
-            : isResolved
-              ? "border-border/50 bg-surface/30"
-              : "border-border bg-surface/60"
+          isDragOver
+            ? "border-accent border-dashed"
+            : isCarried
+              ? "border-carried/40 bg-surface/40"
+              : isResolved
+                ? "border-border/50 bg-surface/30"
+                : "border-border bg-surface/60"
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <p
-              className={`font-sans font-medium leading-snug ${
-                isDone
-                  ? "line-through text-text-secondary"
-                  : isDropped
-                    ? "text-text-secondary"
-                    : "text-text-primary"
-              }`}
+          {isPending && !commitment.brokenDownFrom && (
+            <span
+              className="cursor-grab active:cursor-grabbing text-text-secondary/40 hover:text-text-secondary select-none shrink-0 pt-0.5"
+              title="Drag to reorder"
             >
-              {commitment.text}
-            </p>
+              ⠿
+            </span>
+          )}
+          <div className="flex-1 min-w-0">
+            {isEditing ? (
+              <input
+                ref={editRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const trimmed = editText.trim();
+                    if (trimmed) updateCommitmentText(commitment.id, trimmed);
+                    setIsEditing(false);
+                  }
+                  if (e.key === "Escape") {
+                    setEditText(commitment.text);
+                    setIsEditing(false);
+                  }
+                }}
+                onBlur={() => {
+                  const trimmed = editText.trim();
+                  if (trimmed) updateCommitmentText(commitment.id, trimmed);
+                  setIsEditing(false);
+                }}
+                className="w-full bg-transparent font-sans font-medium leading-snug text-text-primary outline-none border-b border-accent pb-0.5"
+              />
+            ) : (
+              <p
+                className={`font-sans font-medium leading-snug ${
+                  isDone
+                    ? "line-through text-text-secondary"
+                    : isDropped
+                      ? "text-text-secondary"
+                      : "text-text-primary"
+                } ${isPending ? "cursor-text" : ""}`}
+                onClick={() => {
+                  if (!isPending) return;
+                  setEditText(commitment.text);
+                  setIsEditing(true);
+                  setTimeout(() => editRef.current?.focus(), 0);
+                }}
+                title={isPending ? "Click to edit" : undefined}
+              >
+                {commitment.text}
+              </p>
+            )}
+            {commitment.timeOfDay && isPending && (
+              <button
+                onClick={() => setShowTimeMenu(!showTimeMenu)}
+                className="inline-block text-xs px-2 py-0.5 rounded-md mt-1 border border-border text-text-secondary hover:border-accent hover:text-accent transition-colors"
+              >
+                {TIME_LABELS[commitment.timeOfDay]}
+              </button>
+            )}
+            {!commitment.timeOfDay && isPending && (
+              <button
+                onClick={() => setShowTimeMenu(!showTimeMenu)}
+                className="inline-block text-xs px-2 py-0.5 rounded-md mt-1 text-text-secondary/50 hover:text-accent transition-colors"
+              >
+                + when
+              </button>
+            )}
+            {isResolved && commitment.timeOfDay && (
+              <span className="inline-block text-xs px-2 py-0.5 rounded-md mt-1 text-text-secondary/50">
+                {TIME_LABELS[commitment.timeOfDay]}
+              </span>
+            )}
             {isResolved && (
               <DispositionPill disposition={commitment.disposition} dropReason={commitment.dropReason} />
             )}
@@ -145,6 +241,38 @@ function CommitmentCard({
                 {opt.label}
               </button>
             ))}
+          </div>
+        )}
+
+        {showTimeMenu && isPending && (
+          <div className="mt-3 flex flex-wrap gap-1.5 animate-fade-in">
+            {TIME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  updateTimeOfDay(commitment.id, commitment.timeOfDay === opt.value ? undefined : opt.value);
+                  setShowTimeMenu(false);
+                }}
+                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                  commitment.timeOfDay === opt.value
+                    ? "border-accent text-accent bg-accent/10"
+                    : "border-border text-text-secondary hover:border-accent hover:text-accent"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            {commitment.timeOfDay && (
+              <button
+                onClick={() => {
+                  updateTimeOfDay(commitment.id, undefined);
+                  setShowTimeMenu(false);
+                }}
+                className="text-xs px-2.5 py-1 rounded-md text-text-secondary hover:text-accent transition-colors"
+              >
+                Clear
+              </button>
+            )}
           </div>
         )}
 
@@ -208,10 +336,9 @@ function IconButton({
   );
 }
 
-function CheckOutSummary() {
+function CheckOutSummary({ dayKey }: { dayKey: string }) {
   const checkOuts = useStore((s) => s.checkOuts);
-  const day = format(new Date(), "yyyy-MM-dd");
-  const co = useMemo(() => checkOuts.find((c) => c.dayKey === day), [checkOuts, day]);
+  const co = useMemo(() => checkOuts.find((c) => c.dayKey === dayKey), [checkOuts, dayKey]);
   if (!co) return null;
 
   return (
@@ -228,22 +355,113 @@ export default function Day() {
   const allCommitments = useStore((s) => s.commitments);
   const checkIns = useStore((s) => s.checkIns);
   const checkOuts = useStore((s) => s.checkOuts);
+  const day = useStore((s) => s.viewingDay);
+  const goToPrevDay = useStore((s) => s.goToPrevDay);
+  const goToNextDay = useStore((s) => s.goToNextDay);
+  const setViewingDay = useStore((s) => s.setViewingDay);
+  const addCommitment = useStore((s) => s.addCommitment);
+  const updateHardThing = useStore((s) => s.updateHardThing);
+  const updateProtectedThing = useStore((s) => s.updateProtectedThing);
 
-  const day = format(new Date(), "yyyy-MM-dd");
-  const dateStr = format(new Date(), "EEEE, d MMMM");
+  const viewDate = useMemo(() => parseISO(day + "T12:00:00"), [day]);
+  const isTodayView = isToday(viewDate);
+  const dateStr = format(viewDate, "EEEE, d MMMM");
   const hour = new Date().getHours();
 
   const checkIn = useMemo(() => checkIns.find((ci) => ci.dayKey === day), [checkIns, day]);
   const checkOut = useMemo(() => checkOuts.find((co) => co.dayKey === day), [checkOuts, day]);
-  const todayCommitments = useMemo(() => allCommitments.filter((c) => c.dayKey === day), [allCommitments, day]);
+  const dayCommitments = useMemo(() => allCommitments.filter((c) => c.dayKey === day), [allCommitments, day]);
 
-  const topLevel = todayCommitments.filter((c) => !c.brokenDownFrom);
+  const topLevel = useMemo(
+    () => dayCommitments
+      .filter((c) => !c.brokenDownFrom)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [dayCommitments]
+  );
   const getChildren = (parentId: string) =>
     allCommitments.filter((c) => c.brokenDownFrom === parentId && c.dayKey === day);
 
-  const anyTouched = todayCommitments.some((c) => c.disposition !== "pending");
-  const allResolved = todayCommitments.length > 0 && todayCommitments.every((c) => c.disposition !== "pending");
-  const showCheckOut = !checkOut && (hour >= 16 || anyTouched);
+  const { reorderCommitments } = useStore();
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [newTaskText, setNewTaskText] = useState("");
+  const newTaskRef = useRef<HTMLInputElement>(null);
+
+  const [editingHard, setEditingHard] = useState(false);
+  const [hardText, setHardText] = useState(checkIn?.hardThing ?? "");
+  const hardRef = useRef<HTMLInputElement>(null);
+  const [editingProtected, setEditingProtected] = useState(false);
+  const [protectedText, setProtectedText] = useState(checkIn?.protectedThing ?? "");
+  const protectedRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setHardText(checkIn?.hardThing ?? "");
+    setProtectedText(checkIn?.protectedThing ?? "");
+  }, [checkIn?.hardThing, checkIn?.protectedThing]);
+
+  const saveHard = () => {
+    const trimmed = hardText.trim();
+    if (trimmed !== (checkIn?.hardThing ?? "")) {
+      updateHardThing(day, trimmed);
+    }
+    setEditingHard(false);
+  };
+
+  const saveProtected = () => {
+    const trimmed = protectedText.trim();
+    if (trimmed !== (checkIn?.protectedThing ?? "")) {
+      updateProtectedThing(day, trimmed);
+    }
+    setEditingProtected(false);
+  };
+
+  const hasTasks = topLevel.length > 0;
+
+  const handleDragStart = useCallback((idx: number, e: DragEvent) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(idx));
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "0.5";
+    }
+  }, []);
+
+  const handleDragEnd = useCallback((e: DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "1";
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  }, []);
+
+  const handleDragOver = useCallback((idx: number, e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIdx(idx);
+  }, []);
+
+  const handleDrop = useCallback((targetIdx: number, e: DragEvent) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === targetIdx) return;
+    const newOrder = [...topLevel];
+    const [moved] = newOrder.splice(dragIdx, 1);
+    newOrder.splice(targetIdx, 0, moved);
+    reorderCommitments(day, newOrder.map((c) => c.id));
+    setDragIdx(null);
+    setDragOverIdx(null);
+  }, [dragIdx, topLevel, day, reorderCommitments]);
+
+  const handleAddTask = () => {
+    const text = newTaskText.trim();
+    if (!text) return;
+    addCommitment(day, { text });
+    setNewTaskText("");
+    setTimeout(() => newTaskRef.current?.focus(), 50);
+  };
+
+  const anyTouched = dayCommitments.some((c) => c.disposition !== "pending");
+  const allResolved = dayCommitments.length > 0 && dayCommitments.every((c) => c.disposition !== "pending");
+  const showCheckOut = isTodayView && !checkOut && (hour >= 16 || anyTouched);
 
   return (
     <div className="flex min-h-screen flex-col bg-bg px-6 pt-10 pb-8">
@@ -255,7 +473,32 @@ export default function Day() {
           This week
         </button>
         <div className="text-center flex-1">
-          <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Today</p>
+          <div className="flex items-center justify-center gap-3 mb-1">
+            <button
+              onClick={goToPrevDay}
+              className="text-text-secondary hover:text-accent transition-colors text-sm"
+              title="Previous day"
+            >
+              ‹
+            </button>
+            {isTodayView ? (
+              <p className="text-xs text-text-secondary uppercase tracking-wider">Today</p>
+            ) : (
+              <button
+                onClick={() => setViewingDay(format(new Date(), "yyyy-MM-dd"))}
+                className="text-xs text-accent hover:text-accent/80 transition-colors uppercase tracking-wider"
+              >
+                Back to today
+              </button>
+            )}
+            <button
+              onClick={goToNextDay}
+              className="text-text-secondary hover:text-accent transition-colors text-sm"
+              title="Next day"
+            >
+              ›
+            </button>
+          </div>
           <h1 className="font-serif text-2xl text-text-primary">{dateStr}</h1>
         </div>
         <button
@@ -270,31 +513,101 @@ export default function Day() {
         </button>
       </div>
 
-      {checkIn?.protectedThing && (
+      <div className="flex gap-3 mb-6">
         <div
-          className="rounded-xl px-4 py-3 mb-4"
+          className="flex-1 rounded-xl px-4 py-3 cursor-text"
           style={{ backgroundColor: "color-mix(in srgb, var(--anchor-highlight) 15%, transparent)" }}
+          onClick={() => {
+            if (!editingProtected) {
+              setEditingProtected(true);
+              setTimeout(() => protectedRef.current?.focus(), 0);
+            }
+          }}
         >
-          <p className="text-xs text-highlight uppercase tracking-wider mb-1">Protected today</p>
-          <p className="text-sm text-text-primary">{checkIn.protectedThing}</p>
+          <p className="text-xs text-highlight uppercase tracking-wider mb-1">Protected</p>
+          {editingProtected ? (
+            <input
+              ref={protectedRef}
+              value={protectedText}
+              onChange={(e) => setProtectedText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveProtected()}
+              onBlur={saveProtected}
+              placeholder="One thing you'll protect..."
+              className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 outline-none"
+            />
+          ) : (
+            <p className="text-sm text-text-primary">
+              {checkIn?.protectedThing || <span className="text-text-secondary/50">One thing you'll protect...</span>}
+            </p>
+          )}
         </div>
-      )}
+        <div
+          className="flex-1 rounded-xl border border-border px-4 py-3 cursor-text"
+          onClick={() => {
+            if (!editingHard) {
+              setEditingHard(true);
+              setTimeout(() => hardRef.current?.focus(), 0);
+            }
+          }}
+        >
+          <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Might be hard</p>
+          {editingHard ? (
+            <input
+              ref={hardRef}
+              value={hardText}
+              onChange={(e) => setHardText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveHard()}
+              onBlur={saveHard}
+              placeholder="What might be hard..."
+              className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 outline-none"
+            />
+          ) : (
+            <p className="text-sm text-text-primary">
+              {checkIn?.hardThing || <span className="text-text-secondary/50">What might be hard...</span>}
+            </p>
+          )}
+        </div>
+      </div>
 
-      {checkIn?.hardThing && (
-        <p className="text-sm text-text-secondary italic mb-6 text-center">
-          Might be hard: {checkIn.hardThing}
-        </p>
+      {!hasTasks && (
+        <h2 className="font-serif text-xl text-text-primary text-center mb-4">
+          What matters most today?
+        </h2>
       )}
 
       <div className="space-y-3 flex-1">
-        {topLevel.map((c) => (
-          <CommitmentCard key={c.id} commitment={c} children={getChildren(c.id)} />
+        {topLevel.map((c, idx) => (
+          <CommitmentCard
+            key={c.id}
+            commitment={c}
+            children={getChildren(c.id)}
+            isDragOver={dragOverIdx === idx && dragIdx !== idx}
+            onDragStart={(e) => handleDragStart(idx, e)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOver(idx, e)}
+            onDrop={(e) => handleDrop(idx, e)}
+          />
         ))}
+
+        <div className="flex items-center gap-2">
+          <input
+            ref={newTaskRef}
+            value={newTaskText}
+            onChange={(e) => setNewTaskText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddTask()}
+            placeholder="+ Add a task..."
+            className={`flex-1 rounded-lg border border-dashed bg-transparent px-4 py-2.5 text-sm text-text-primary outline-none focus:border-accent transition-colors ${
+              hasTasks
+                ? "border-border placeholder:text-text-secondary/40"
+                : "border-accent/50 placeholder:text-text-secondary/60"
+            }`}
+          />
+        </div>
       </div>
 
       {checkOut && (
         <div className="mt-6">
-          <CheckOutSummary />
+          <CheckOutSummary dayKey={day} />
         </div>
       )}
 

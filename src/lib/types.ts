@@ -11,6 +11,8 @@ export type DropReason =
   | "not_worth_it"
   | "avoided";
 
+export type TimeOfDay = "morning" | "afternoon" | "evening";
+
 export interface Commitment {
   id: string;
   text: string;
@@ -21,6 +23,8 @@ export interface Commitment {
   brokenDownFrom?: string;
   carryHistory: string[];
   firstStepNote?: string;
+  timeOfDay?: TimeOfDay;
+  order: number;
 }
 
 export interface CheckIn {
