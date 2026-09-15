@@ -27,7 +27,7 @@ function DispositionPill({ disposition, dropReason }: { disposition: string; dro
       style={{ color: info.color, backgroundColor: `color-mix(in srgb, ${info.color} 12%, transparent)` }}
     >
       {info.text}
-      {disposition === "dropped" && dropReason && dropReason !== "none" && (
+      {disposition === "dropped" && dropReason && (
         <span className="ml-1 opacity-70">
           · {DROP_OPTIONS.find((o) => o.value === dropReason)?.label}
         </span>
