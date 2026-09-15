@@ -1,10 +1,20 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, subDays } from "date-fns";
 import { useStore, weekKey } from "../lib/store";
 import { generateWeeklyReflection } from "../lib/ai";
-import type { WeeklyReview } from "../lib/types";
+import type { Commitment, CheckIn, CheckOut } from "../lib/types";
 
-function buildDeterministicReflection(week: ReturnType<ReturnType<typeof useStore>["getWeek"]>): string {
+interface WeekDay {
+  dayKey: string;
+  checkIn?: CheckIn;
+  commitments: Commitment[];
+  checkOut?: CheckOut;
+}
+
+interface WeekData {
+  days: WeekDay[];
+}
+
+function buildDeterministicReflection(week: WeekData): string {
   const allCommitments = week.days.flatMap((d) => d.commitments);
   const total = allCommitments.length;
   const done = allCommitments.filter((c) => c.disposition === "done").length;
