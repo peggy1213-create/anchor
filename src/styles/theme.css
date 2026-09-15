@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--anchor-bg);
+  --color-surface: var(--anchor-surface);
+  --color-text-primary: var(--anchor-text-primary);
+  --color-text-secondary: var(--anchor-text-secondary);
+  --color-accent: var(--anchor-accent);
+  --color-highlight: var(--anchor-highlight);
+  --color-carried: var(--anchor-carried);
+  --color-done: var(--anchor-done);
+  --color-border: var(--anchor-border);
+
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+/* Morning Mist — light palette */
+:root {
+  --anchor-bg: #F5F1EA;
+  --anchor-surface: #FFFFFF;
+  --anchor-text-primary: #2E3A34;
+  --anchor-text-secondary: #6B7A72;
+  --anchor-accent: #7A9E8E;
+  --anchor-highlight: #D4B896;
+  --anchor-carried: #C89B7B;
+  --anchor-done: #94B49F;
+  --anchor-border: #E5DFD4;
+}
+
+/* Evening Fog — dark palette */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --anchor-bg: #1F2622;
+    --anchor-surface: #2A322D;
+    --anchor-text-primary: #E8E4DB;
+    --anchor-text-secondary: #9BA69E;
+    --anchor-accent: #8FB3A2;
+    --anchor-highlight: #C9A87C;
+    --anchor-carried: #B8896B;
+    --anchor-done: #7FA089;
+    --anchor-border: #3A423D;
+  }
+}
+
+:root[data-theme="dark"] {
+  --anchor-bg: #1F2622;
+  --anchor-surface: #2A322D;
+  --anchor-text-primary: #E8E4DB;
+  --anchor-text-secondary: #9BA69E;
+  --anchor-accent: #8FB3A2;
+  --anchor-highlight: #C9A87C;
+  --anchor-carried: #B8896B;
+  --anchor-done: #7FA089;
+  --anchor-border: #3A423D;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@utility animate-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+@layer base {
+  html {
+    font-size: 15px;
+    line-height: 1.6;
+    letter-spacing: 0.01em;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
